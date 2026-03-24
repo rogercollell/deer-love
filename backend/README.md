@@ -1,6 +1,6 @@
-# DeerFlow Backend
+# deer-love Backend
 
-DeerFlow is a LangGraph-based AI super agent with sandbox execution, persistent memory, and extensible tool integration. The backend enables AI agents to execute code, browse the web, manage files, delegate tasks to subagents, and retain context across conversations - all in isolated, per-thread environments.
+The `deer-love` backend is a LangGraph-based super-agent runtime with sandbox execution, persistent memory, and extensible tool integration. It inherits the DeerFlow 2.0 harness architecture and adds an Attune response-refinement layer for tone-sensitive replies.
 
 ---
 
@@ -48,7 +48,7 @@ DeerFlow is a LangGraph-based AI super agent with sandbox execution, persistent 
 The single LangGraph agent (`lead_agent`) is the runtime entry point, created via `make_lead_agent(config)`. It combines:
 
 - **Dynamic model selection** with thinking and vision support
-- **Middleware chain** for cross-cutting concerns (9 middlewares)
+- **Middleware chain** for cross-cutting concerns (10 middlewares)
 - **Tool system** with sandbox, MCP, community, and built-in tools
 - **Subagent delegation** for parallel task execution
 - **System prompt** with skills injection, memory context, and working directory guidance
@@ -65,9 +65,10 @@ Middlewares execute in strict order, each handling a specific concern:
 | 4 | **SummarizationMiddleware** | Reduces context when approaching token limits (optional) |
 | 5 | **TodoListMiddleware** | Tracks multi-step tasks in plan mode (optional) |
 | 6 | **TitleMiddleware** | Auto-generates conversation titles after first exchange |
-| 7 | **MemoryMiddleware** | Queues conversations for async memory extraction |
-| 8 | **ViewImageMiddleware** | Injects image data for vision-capable models (conditional) |
-| 9 | **ClarificationMiddleware** | Intercepts clarification requests and interrupts execution (must be last) |
+| 7 | **AttuneMiddleware** | Optionally evaluates and refines human-sensitive replies before they are stored |
+| 8 | **MemoryMiddleware** | Queues conversations for async memory extraction |
+| 9 | **ViewImageMiddleware** | Injects image data for vision-capable models (conditional) |
+| 10 | **ClarificationMiddleware** | Intercepts clarification requests and interrupts execution (must be last) |
 
 ### Sandbox System
 
@@ -76,7 +77,7 @@ Per-thread isolated execution with virtual path translation:
 - **Abstract interface**: `execute_command`, `read_file`, `write_file`, `list_dir`
 - **Providers**: `LocalSandboxProvider` (filesystem) and `AioSandboxProvider` (Docker, in community/)
 - **Virtual paths**: `/mnt/user-data/{workspace,uploads,outputs}` → thread-specific physical directories
-- **Skills path**: `/mnt/skills` → `deer-flow/skills/` directory
+- **Skills path**: `/mnt/skills` → `deer-love/skills/` directory
 - **Skills loading**: Recursively discovers nested `SKILL.md` files under `skills/{public,custom}` and preserves nested container paths
 - **Tools**: `bash`, `ls`, `read_file`, `write_file`, `str_replace`
 
@@ -125,14 +126,14 @@ FastAPI application providing REST endpoints for frontend integration:
 | `GET /api/memory/status` | Combined config + data |
 | `POST /api/threads/{id}/uploads` | Upload files (auto-converts PDF/PPT/Excel/Word to Markdown, rejects directory paths) |
 | `GET /api/threads/{id}/uploads/list` | List uploaded files |
-| `DELETE /api/threads/{id}` | Delete DeerFlow-managed local thread data after LangGraph thread deletion; unexpected failures are logged server-side and return a generic 500 detail |
+| `DELETE /api/threads/{id}` | Delete deer-love-managed local thread data after LangGraph thread deletion; unexpected failures are logged server-side and return a generic 500 detail |
 | `GET /api/threads/{id}/artifacts/{path}` | Serve generated artifacts |
 
 ### IM Channels
 
 The IM bridge supports Feishu, Slack, and Telegram. Slack and Telegram still use the final `runs.wait()` response path, while Feishu now streams through `runs.stream(["messages-tuple", "values"])` and updates a single in-thread card in place.
 
-For Feishu card updates, DeerFlow stores the running card's `message_id` per inbound message and patches that same card until the run finishes, preserving the existing `OK` / `DONE` reaction flow.
+For Feishu card updates, deer-love stores the running card's `message_id` per inbound message and patches that same card until the run finishes, preserving the existing `OK` / `DONE` reaction flow.
 
 ---
 
@@ -147,7 +148,7 @@ For Feishu card updates, DeerFlow stores the running card's `message_id` per inb
 ### Installation
 
 ```bash
-cd deer-flow
+cd deer-love
 
 # Copy configuration files
 cp config.example.yaml config.yaml
@@ -270,7 +271,7 @@ Key sections:
 
 Provider note:
 - `models[*].use` references provider classes by module path (for example `langchain_openai:ChatOpenAI`).
-- If a provider module is missing, DeerFlow now returns an actionable error with install guidance (for example `uv add langchain-google-genai`).
+- If a provider module is missing, deer-love now returns an actionable error with install guidance (for example `uv add langchain-google-genai`).
 
 ### Extensions Configuration (`extensions_config.json`)
 

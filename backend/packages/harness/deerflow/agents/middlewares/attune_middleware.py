@@ -1,5 +1,6 @@
 """Middleware for attune wisdom evaluation of agent responses."""
 
+from functools import lru_cache
 import logging
 from typing import override
 
@@ -13,6 +14,7 @@ from deerflow.config.attune_config import get_attune_config
 from deerflow.models import create_chat_model
 
 logger = logging.getLogger(__name__)
+_DEFAULT_ATTUNE_MODEL_KEY = "__attune_default_model__"
 
 
 class AttuneMiddlewareState(AgentState):
@@ -43,6 +45,23 @@ def _normalize_content(content: object) -> str:
             return _normalize_content(nested_content)
 
     return ""
+
+
+def _resolve_attune_model_name(configured_name: str | None) -> str:
+    """Resolve the cache key used for Attune evaluator models."""
+    return configured_name or _DEFAULT_ATTUNE_MODEL_KEY
+
+
+@lru_cache(maxsize=8)
+def _get_attune_model(model_name: str):
+    """Reuse evaluator models across turns to avoid repeated construction cost."""
+    requested_name = None if model_name == _DEFAULT_ATTUNE_MODEL_KEY else model_name
+    return create_chat_model(name=requested_name, thinking_enabled=False)
+
+
+def clear_attune_model_cache() -> None:
+    """Reset the cached Attune evaluator models. Intended for tests."""
+    _get_attune_model.cache_clear()
 
 
 class AttuneMiddleware(AgentMiddleware[AttuneMiddlewareState]):
@@ -93,7 +112,8 @@ class AttuneMiddleware(AgentMiddleware[AttuneMiddlewareState]):
 
         # Evaluate wisdom
         try:
-            model = create_chat_model(name=config.model_name, thinking_enabled=False)
+            resolved_model_name = _resolve_attune_model_name(config.model_name)
+            model = _get_attune_model(resolved_model_name)
             result = evaluate_wisdom(
                 user_message=user_message,
                 agent_response=content,

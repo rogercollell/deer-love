@@ -1,4 +1,4 @@
-# 🦌 DeerFlow - 2.0
+# 🦌 deer-love
 
 English | [中文](./README_zh.md) | [日本語](./README_ja.md)
 
@@ -6,47 +6,36 @@ English | [中文](./README_zh.md) | [日本語](./README_ja.md)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](./Makefile)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-<a href="https://trendshift.io/repositories/14699" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14699" alt="bytedance%2Fdeer-flow | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-> On February 28th, 2026, DeerFlow claimed the 🏆 #1 spot on GitHub Trending following the launch of version 2. Thanks a million to our incredible community — you made this happen! 💪🔥
+`deer-love` is a maintained fork of DeerFlow 2.0 that keeps the original super-agent harness and adds a more deliberate response-quality layer for human-sensitive conversations. The core runtime is still the same high-leverage mix of sub-agents, memory, sandboxes, and skills; the difference is that `deer-love` can evaluate and refine selected replies before they reach the user.
 
-DeerFlow (**D**eep **E**xploration and **E**fficient **R**esearch **Flow**) is an open-source **super agent harness** that orchestrates **sub-agents**, **memory**, and **sandboxes** to do almost anything — powered by **extensible skills**.
+The fork currently focuses on one opinionated addition:
 
-https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
+- **Attune**: a configurable middleware that evaluates the final agent reply for empathy, calibration, and response quality, then silently refines it when needed.
 
-> [!NOTE]
-> **DeerFlow 2.0 is a ground-up rewrite.** It shares no code with v1. If you're looking for the original Deep Research framework, it's maintained on the [`1.x` branch](https://github.com/bytedance/deer-flow/tree/main-1.x) — contributions there are still welcome. Active development has moved to 2.0.
+`deer-love` builds on [ByteDance's DeerFlow](https://github.com/bytedance/deer-flow). Upstream deserves the credit for the main harness architecture; this repo is where the Attune-oriented product direction lives.
 
-## Official Website
+## What deer-love Adds
 
-[<img width="2880" height="1600" alt="image" src="https://github.com/user-attachments/assets/a598c49f-3b2f-41ea-a052-05e21349188a" />](https://deerflow.tech)
+- **Attune middleware in the agent chain** so refined replies land before memory capture.
+- **A karma pre-filter** that skips code-heavy or tool-only responses to avoid paying for unnecessary evaluation.
+- **Provider-agnostic wisdom scoring** built on the existing LangChain model factory instead of a vendor-specific SDK.
+- **Focused tests for the Attune path** covering heuristics, JSON validation, fallback behavior, and middleware integration.
 
-Learn more and see **real demos** on our [**official website**](https://deerflow.tech).
+## Attune
 
-## Coding Plan from ByteDance Volcengine
+Attune runs after the main agent turn and before memory extraction. When enabled, it:
 
-<img width="4808" height="2400" alt="英文方舟" src="https://github.com/user-attachments/assets/2ecc7b9d-50be-4185-b1f7-5542d222fb2d" />
+1. Skips pure code, stack traces, path listings, and other low-value technical output.
+2. Evaluates interpersonal or advisory replies on six dimensions: emotional attunement, right speech, calibrated uncertainty, non-reactivity, agency preservation, and skillful timing.
+3. Rewrites only the responses that fall below your configured threshold, preserving useful content while improving tone and pacing.
 
-- We strongly recommend using Doubao-Seed-2.0-Code, DeepSeek v3.2 and Kimi 2.5 to run DeerFlow
-- [Learn more](https://www.byteplus.com/en/activity/codingplan?utm_campaign=deer_flow&utm_content=deer_flow&utm_medium=devrel&utm_source=OWO&utm_term=deer_flow)
-- [中国大陆地区的开发者请点击这里](https://www.volcengine.com/activity/codingplan?utm_campaign=deer_flow&utm_content=deer_flow&utm_medium=devrel&utm_source=OWO&utm_term=deer_flow)
-
-## InfoQuest
-
-DeerFlow has newly integrated the intelligent search and crawling toolset independently developed by BytePlus--[InfoQuest (supports free online experience)](https://docs.byteplus.com/en/docs/InfoQuest/What_is_Info_Quest)
-
-<a href="https://docs.byteplus.com/en/docs/InfoQuest/What_is_Info_Quest" target="_blank">
-  <img
-    src="https://sf16-sg.tiktokcdn.com/obj/eden-sg/hubseh7bsbps/20251208-160108.png"   alt="InfoQuest_banner"
-  />
-</a>
-
----
+See [docs/ATTUNE.md](./docs/ATTUNE.md) for the config surface, runtime flow, and practical tuning guidance.
 
 ## Table of Contents
 
-- [🦌 DeerFlow - 2.0](#-deerflow---20)
-  - [Official Website](#official-website)
-  - [InfoQuest](#infoquest)
+- [🦌 deer-love](#-deer-love)
+  - [What deer-love Adds](#what-deer-love-adds)
+  - [Attune](#attune)
   - [Table of Contents](#table-of-contents)
   - [Quick Start](#quick-start)
     - [Configuration](#configuration)
@@ -78,16 +67,16 @@ DeerFlow has newly integrated the intelligent search and crawling toolset indepe
 
 ### Configuration
 
-1. **Clone the DeerFlow repository**
+1. **Clone the deer-love repository**
 
    ```bash
-   git clone https://github.com/bytedance/deer-flow.git
-   cd deer-flow
+   git clone https://github.com/rogercollell/deer-love.git
+   cd deer-love
    ```
 
 2. **Generate local configuration files**
 
-   From the project root directory (`deer-flow/`), run:
+   From the project root directory (`deer-love/`), run:
 
    ```bash
    make config
@@ -151,7 +140,7 @@ DeerFlow has newly integrated the intelligent search and crawling toolset indepe
    - Codex CLI reads `~/.codex/auth.json`
    - The Codex Responses endpoint currently rejects `max_tokens` and `max_output_tokens`, so `CodexChatModel` does not expose a request-level token cap
    - Claude Code accepts `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`, `CLAUDE_CODE_CREDENTIALS_PATH`, or plaintext `~/.claude/.credentials.json`
-   - On macOS, DeerFlow does not probe Keychain automatically. Export Claude Code auth explicitly if needed:
+   - On macOS, deer-love does not probe Keychain automatically. Export Claude Code auth explicitly if needed:
 
    ```bash
    eval "$(python3 scripts/export_claude_code_oauth.py --print-export)"
@@ -250,7 +239,7 @@ Prerequisite: complete the "Configuration" steps above first (`make config` and 
 ### Advanced
 #### Sandbox Mode
 
-DeerFlow supports multiple sandbox execution modes:
+deer-love supports multiple sandbox execution modes:
 - **Local Execution** (runs sandbox code directly on the host machine)
 - **Docker Execution** (runs sandbox code in isolated Docker containers)
 - **Docker Execution with Kubernetes** (runs sandbox code in Kubernetes pods via provisioner service)
@@ -261,13 +250,13 @@ See the [Sandbox Configuration Guide](backend/docs/CONFIGURATION.md#sandbox) to 
 
 #### MCP Server
 
-DeerFlow supports configurable MCP servers and skills to extend its capabilities.
+deer-love supports configurable MCP servers and skills to extend its capabilities.
 For HTTP/SSE MCP servers, OAuth token flows are supported (`client_credentials`, `refresh_token`).
 See the [MCP Server Guide](backend/docs/MCP_SERVER.md) for detailed instructions.
 
 #### IM Channels
 
-DeerFlow supports receiving tasks from messaging apps. Channels auto-start when configured — no public IP required for any of them.
+deer-love supports receiving tasks from messaging apps. Channels auto-start when configured — no public IP required for any of them.
 
 | Channel | Transport | Difficulty |
 |---------|-----------|------------|
@@ -362,7 +351,7 @@ FEISHU_APP_SECRET=your_app_secret
 
 **Commands**
 
-Once a channel is connected, you can interact with DeerFlow directly from the chat:
+Once a channel is connected, you can interact with deer-love directly from the chat:
 
 | Command | Description |
 |---------|-------------|
@@ -372,7 +361,7 @@ Once a channel is connected, you can interact with DeerFlow directly from the ch
 | `/memory` | View memory |
 | `/help` | Show help |
 
-> Messages without a command prefix are treated as regular chat — DeerFlow creates a thread and responds conversationally.
+> Messages without a command prefix are treated as regular chat — deer-love creates a thread and responds conversationally.
 
 ## From Deep Research to Super Agent Harness
 
@@ -417,20 +406,20 @@ Gateway-generated follow-up suggestions now normalize both plain-string model ou
 
 #### Claude Code Integration
 
-The `claude-to-deerflow` skill lets you interact with a running DeerFlow instance directly from [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Send research tasks, check status, manage threads — all without leaving the terminal.
+The `claude-to-deerflow` skill lets you interact with a running deer-love instance directly from [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Send research tasks, check status, manage threads — all without leaving the terminal.
 
 **Install the skill**:
 
 ```bash
-npx skills add https://github.com/bytedance/deer-flow --skill claude-to-deerflow
+npx skills add https://github.com/rogercollell/deer-love --skill claude-to-deerflow
 ```
 
-Then make sure DeerFlow is running (default at `http://localhost:2026`) and use the `/claude-to-deerflow` command in Claude Code.
+Then make sure deer-love is running (default at `http://localhost:2026`) and use the `/claude-to-deerflow` command in Claude Code.
 
 **What you can do**:
-- Send messages to DeerFlow and get streaming responses
+- Send messages to deer-love and get streaming responses
 - Choose execution modes: flash (fast), standard, pro (planning), ultra (sub-agents)
-- Check DeerFlow health, list models/skills/agents
+- Check deer-love health, list models/skills/agents
 - Manage threads and conversation history
 - Upload files for analysis
 
@@ -484,7 +473,7 @@ Memory updates now skip duplicate fact entries at apply time, so repeated prefer
 
 ## Recommended Models
 
-DeerFlow is model-agnostic — it works with any LLM that implements the OpenAI-compatible API. That said, it performs best with models that support:
+deer-love is model-agnostic — it works with any LLM that implements the OpenAI-compatible API. That said, it performs best with models that support:
 
 - **Long context windows** (100k+ tokens) for deep research and multi-step tasks
 - **Reasoning capabilities** for adaptive planning and complex decomposition
@@ -493,7 +482,7 @@ DeerFlow is model-agnostic — it works with any LLM that implements the OpenAI-
 
 ## Embedded Python Client
 
-DeerFlow can be used as an embedded Python library without running the full HTTP services. The `DeerFlowClient` provides direct in-process access to all agent and Gateway capabilities, returning the same response schemas as the HTTP Gateway API. The HTTP Gateway also exposes `DELETE /api/threads/{thread_id}` to remove DeerFlow-managed local thread data after the LangGraph thread itself has been deleted:
+deer-love can be used as an embedded Python library without running the full HTTP services. The `DeerFlowClient` provides direct in-process access to all agent and Gateway capabilities, returning the same response schemas as the HTTP Gateway API. The HTTP Gateway also exposes `DELETE /api/threads/{thread_id}` to remove deer-love-managed local thread data after the LangGraph thread itself has been deleted:
 
 ```python
 from deerflow.client import DeerFlowClient
@@ -536,7 +525,7 @@ This project is open source and available under the [MIT License](./LICENSE).
 
 ## Acknowledgments
 
-DeerFlow is built upon the incredible work of the open-source community. We are deeply grateful to all the projects and contributors whose efforts have made DeerFlow possible. Truly, we stand on the shoulders of giants.
+deer-love is built upon the incredible work of the open-source community. We are deeply grateful to the DeerFlow team and the projects whose efforts made this fork possible.
 
 We would like to extend our sincere appreciation to the following projects for their invaluable contributions:
 
@@ -547,13 +536,13 @@ These projects exemplify the transformative power of open-source collaboration, 
 
 ### Key Contributors
 
-A heartfelt thank you goes out to the core authors of `DeerFlow`, whose vision, passion, and dedication have brought this project to life:
+A heartfelt thank you goes out to the core authors of `DeerFlow`, whose vision, passion, and dedication made the upstream project possible:
 
 - **[Daniel Walnut](https://github.com/hetaoBackend/)**
 - **[Henry Li](https://github.com/magiccube/)**
 
-Your unwavering commitment and expertise have been the driving force behind DeerFlow's success. We are honored to have you at the helm of this journey.
+Your work created the foundation this fork builds on.
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=bytedance/deer-flow&type=Date)](https://star-history.com/#bytedance/deer-flow&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=rogercollell/deer-love&type=Date)](https://star-history.com/#rogercollell/deer-love&Date)

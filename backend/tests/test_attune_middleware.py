@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from deerflow.agents.middlewares.attune_middleware import AttuneMiddleware
+from deerflow.agents.middlewares.attune_middleware import AttuneMiddleware, clear_attune_model_cache
 from deerflow.config.attune_config import AttuneConfig, get_attune_config, set_attune_config
 
 
@@ -43,9 +43,11 @@ def _make_mock_model(response_text: str) -> MagicMock:
 class TestAttuneMiddleware:
     def setup_method(self):
         self._original = AttuneConfig(**get_attune_config().model_dump())
+        clear_attune_model_cache()
 
     def teardown_method(self):
         set_attune_config(self._original)
+        clear_attune_model_cache()
 
     def test_skips_code_dominant_response(self):
         """Code-dominant responses bypass attune evaluation."""
@@ -191,6 +193,34 @@ class TestAttuneMiddleware:
         # The same message object in the list should now have refined content
         # This is what MemoryMiddleware would see when it processes messages
         assert messages[-1].content == "Refined with compassion"
+
+    @patch("deerflow.agents.middlewares.attune_middleware.create_chat_model")
+    def test_reuses_cached_evaluator_model(self, mock_create_model):
+        """Attune should reuse the same evaluator model across turns for the same config."""
+        set_attune_config(AttuneConfig(enabled=True, model_name="attune-evaluator"))
+        mock_create_model.return_value = _make_mock_model(
+            _make_valid_response_text(should_refine=False, refined="Original response")
+        )
+        middleware = AttuneMiddleware()
+        runtime = MagicMock()
+
+        state_one = {
+            "messages": [
+                HumanMessage(content="I need help"),
+                AIMessage(content="I understand how you feel. Let's work through this together."),
+            ]
+        }
+        state_two = {
+            "messages": [
+                HumanMessage(content="I need help again"),
+                AIMessage(content="I understand how you feel. Let's work through this together."),
+            ]
+        }
+
+        middleware.after_agent(state_one, runtime)
+        middleware.after_agent(state_two, runtime)
+
+        assert mock_create_model.call_count == 1
 
     @patch("deerflow.agents.lead_agent.agent.get_app_config")
     @patch("deerflow.agents.lead_agent.agent.get_summarization_config")

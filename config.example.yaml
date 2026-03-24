@@ -547,6 +547,6 @@ checkpointer:
 # "substantial karma" (interpersonal/advisory content, not code/tool output).
 # attune:
 #   enabled: true
-#   model_name: null          # null = use default model
+#   model_name: null          # null = use default model; recommend a smaller evaluator model
 #   domain: "general"         # general | coaching | mental_health
 #   wisdom_threshold: 0.80    # refine if wisdom score below this
