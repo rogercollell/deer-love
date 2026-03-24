@@ -5,6 +5,7 @@ from langchain.agents.middleware import SummarizationMiddleware
 from langchain_core.runnables import RunnableConfig
 
 from deerflow.agents.lead_agent.prompt import apply_prompt_template
+from deerflow.agents.middlewares.attune_middleware import AttuneMiddleware
 from deerflow.agents.middlewares.clarification_middleware import ClarificationMiddleware
 from deerflow.agents.middlewares.loop_detection_middleware import LoopDetectionMiddleware
 from deerflow.agents.middlewares.memory_middleware import MemoryMiddleware
@@ -16,6 +17,7 @@ from deerflow.agents.middlewares.view_image_middleware import ViewImageMiddlewar
 from deerflow.agents.thread_state import ThreadState
 from deerflow.config.agents_config import load_agent_config
 from deerflow.config.app_config import get_app_config
+from deerflow.config.attune_config import get_attune_config
 from deerflow.config.summarization_config import get_summarization_config
 from deerflow.models import create_chat_model
 
@@ -229,6 +231,11 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
 
     # Add TitleMiddleware
     middlewares.append(TitleMiddleware())
+
+    # Add AttuneMiddleware if enabled (before MemoryMiddleware so memory stores refined response)
+    attune_config = get_attune_config()
+    if attune_config.enabled:
+        middlewares.append(AttuneMiddleware())
 
     # Add MemoryMiddleware (after TitleMiddleware)
     middlewares.append(MemoryMiddleware(agent_name=agent_name))
