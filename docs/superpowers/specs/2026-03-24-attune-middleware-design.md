@@ -143,9 +143,10 @@ class AttuneConfig(BaseModel):
 
 The `domain` field uses the `Domain` enum from `attune/models.py` for validation, ensuring only valid values (`general`, `coaching`, `mental_health`) are accepted. In `config.yaml` it's written as a plain string and Pydantic coerces it.
 
-Added to `AppConfig` as:
+Loaded in `AppConfig.from_file()` via the global singleton pattern (same as title, memory, guardrails configs):
 ```python
-attune: AttuneConfig = Field(default_factory=AttuneConfig)
+if "attune" in config_data:
+    load_attune_config_from_dict(config_data["attune"])
 ```
 
 Example `config.yaml`:
