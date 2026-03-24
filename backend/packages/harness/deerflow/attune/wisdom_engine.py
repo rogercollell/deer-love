@@ -170,7 +170,8 @@ def _validate_and_build(
     # Compute wisdom_score_before from raw scores
     raw_wisdom = sum(scores[d] * DIMENSION_WEIGHTS[d] for d in DIMENSIONS)
 
-    # Determine should_refine using configured threshold
+    # Recompute should_refine server-side from actual scores + threshold,
+    # intentionally ignoring the LLM's should_refine value for safety.
     should_refine = sensitivity == "critical" or raw_wisdom < wisdom_threshold
 
     # Round scores for response

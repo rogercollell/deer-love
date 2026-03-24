@@ -192,16 +192,40 @@ class TestAttuneMiddleware:
         # This is what MemoryMiddleware would see when it processes messages
         assert messages[-1].content == "Refined with compassion"
 
-    def test_not_in_chain_when_disabled(self):
+    @patch("deerflow.agents.lead_agent.agent.get_app_config")
+    @patch("deerflow.agents.lead_agent.agent.get_summarization_config")
+    @patch("deerflow.agents.lead_agent.agent.build_lead_runtime_middlewares", return_value=[])
+    def test_not_in_chain_when_disabled(self, _mock_runtime, mock_summ, mock_app):
         """AttuneMiddleware is excluded from _build_middlewares() when disabled."""
-        set_attune_config(AttuneConfig(enabled=False))
+        from deerflow.agents.lead_agent.agent import _build_middlewares
         from deerflow.agents.middlewares.attune_middleware import AttuneMiddleware as AW
 
-        # Import _build_middlewares and check the chain
-        # We verify the middleware type is not in the returned list
-        from deerflow.config.attune_config import get_attune_config
-        config = get_attune_config()
-        assert config.enabled is False
-        # AttuneMiddleware checks config.enabled in after_agent, and
-        # _build_middlewares() only appends it when enabled — verified by
-        # checking the conditional in agent.py
+        mock_summ.return_value = MagicMock(enabled=False)
+        mock_app.return_value = MagicMock(
+            get_model_config=MagicMock(return_value=None),
+            tool_search=MagicMock(enabled=False),
+        )
+
+        set_attune_config(AttuneConfig(enabled=False))
+        config = {"configurable": {}}
+        middlewares = _build_middlewares(config, model_name=None)
+        assert not any(isinstance(m, AW) for m in middlewares)
+
+    @patch("deerflow.agents.lead_agent.agent.get_app_config")
+    @patch("deerflow.agents.lead_agent.agent.get_summarization_config")
+    @patch("deerflow.agents.lead_agent.agent.build_lead_runtime_middlewares", return_value=[])
+    def test_in_chain_when_enabled(self, _mock_runtime, mock_summ, mock_app):
+        """AttuneMiddleware is included in _build_middlewares() when enabled."""
+        from deerflow.agents.lead_agent.agent import _build_middlewares
+        from deerflow.agents.middlewares.attune_middleware import AttuneMiddleware as AW
+
+        mock_summ.return_value = MagicMock(enabled=False)
+        mock_app.return_value = MagicMock(
+            get_model_config=MagicMock(return_value=None),
+            tool_search=MagicMock(enabled=False),
+        )
+
+        set_attune_config(AttuneConfig(enabled=True))
+        config = {"configurable": {}}
+        middlewares = _build_middlewares(config, model_name=None)
+        assert any(isinstance(m, AW) for m in middlewares)
