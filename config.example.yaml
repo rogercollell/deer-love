@@ -12,7 +12,7 @@
 # ============================================================================
 # Bump this number when the config schema changes.
 # Run `make config-upgrade` to merge new fields into your local config.yaml.
-config_version: 3
+config_version: 4
 
 # ============================================================================
 # Models Configuration
@@ -541,12 +541,12 @@ checkpointer:
 #     config:
 #       key: value
 
-# ---- Attune Wisdom Evaluation ----
-# Evaluates agent responses for wisdom and compassion, silently refining
-# those that score below the threshold. Only runs on responses that carry
-# "substantial karma" (interpersonal/advisory content, not code/tool output).
+# ---- Attune Upstream Wisdom Framing ----
+# Adds an upstream wisdom layer for consequential or wellbeing-sensitive turns.
+# It computes a short situational frame before the agent responds and injects
+# it ephemerally into model calls. Baseline compassion still comes from the
+# main system prompt.
 # attune:
 #   enabled: true
-#   model_name: null          # null = use default model
+#   model_name: null          # null = use default model; recommend a smaller, fast framing model
 #   domain: "general"         # general | coaching | mental_health
-#   wisdom_threshold: 0.80    # refine if wisdom score below this

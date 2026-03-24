@@ -1,32 +1,38 @@
-"""Middleware for attune wisdom evaluation of agent responses."""
+"""Middleware for upstream attune wisdom framing."""
 
 import logging
-from typing import override
+from collections.abc import Awaitable, Callable
+from functools import lru_cache
+from typing import NotRequired, override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware.types import ModelCallResult, ModelRequest, ModelResponse
+from langchain_core.messages import SystemMessage
 from langgraph.runtime import Runtime
 
-from deerflow.attune.karma_filter import carries_karma
-from deerflow.attune.wisdom_engine import evaluate_wisdom
+from deerflow.attune.karma_filter import needs_wisdom_frame
+from deerflow.attune.models import WisdomFrame
+from deerflow.attune.wisdom_frame import build_wisdom_frame
 from deerflow.config.attune_config import get_attune_config
 from deerflow.models import create_chat_model
 
 logger = logging.getLogger(__name__)
 
+WISDOM_FRAME_TAG = "attune_wisdom"
+_DEFAULT_ATTUNE_MODEL_KEY = "__attune_default_model__"
+_RECENT_CONTEXT_LIMIT = 6
+_RECENT_CONTEXT_CHAR_LIMIT = 2500
+
 
 class AttuneMiddlewareState(AgentState):
     """Compatible with the ThreadState schema."""
 
-    pass
+    attune_wisdom_frame: NotRequired[dict[str, object] | None]
 
 
 def _normalize_content(content: object) -> str:
-    """Normalize message content to plain text.
-
-    Handles str, list-of-dicts with "text" keys, and nested structures.
-    Same pattern as TitleMiddleware._normalize_content().
-    """
+    """Normalize message content to plain text."""
     if isinstance(content, str):
         return content
 
@@ -45,74 +51,163 @@ def _normalize_content(content: object) -> str:
     return ""
 
 
-class AttuneMiddleware(AgentMiddleware[AttuneMiddlewareState]):
-    """Evaluate agent responses for wisdom and silently refine if needed.
+def _resolve_attune_model_name(configured_name: str | None) -> str:
+    return configured_name or _DEFAULT_ATTUNE_MODEL_KEY
 
-    Hooks after_agent to run once per complete agent turn. Skips responses
-    that don't carry substantial karma (code, tool output, file listings).
-    """
+
+@lru_cache(maxsize=8)
+def _get_attune_model(model_name: str):
+    requested_name = None if model_name == _DEFAULT_ATTUNE_MODEL_KEY else model_name
+    return create_chat_model(name=requested_name, thinking_enabled=False)
+
+
+def clear_attune_model_cache() -> None:
+    """Reset cached Attune framing models. Intended for tests."""
+    _get_attune_model.cache_clear()
+
+
+def _get_last_human_message(messages: list) -> str:
+    for msg in reversed(messages):
+        if getattr(msg, "type", None) == "human":
+            content = _normalize_content(getattr(msg, "content", ""))
+            if content.strip():
+                return content.strip()
+    return ""
+
+
+def _build_recent_context(messages: list) -> str:
+    items: list[str] = []
+
+    for msg in messages:
+        msg_type = getattr(msg, "type", None)
+        if msg_type not in {"human", "ai"}:
+            continue
+        if msg_type == "ai" and getattr(msg, "tool_calls", None):
+            continue
+
+        content = _normalize_content(getattr(msg, "content", "")).strip()
+        if not content:
+            continue
+
+        speaker = "User" if msg_type == "human" else "Assistant"
+        items.append(f"{speaker}: {content}")
+
+    context = "\n".join(items[-_RECENT_CONTEXT_LIMIT:])
+    if len(context) <= _RECENT_CONTEXT_CHAR_LIMIT:
+        return context
+    return context[-_RECENT_CONTEXT_CHAR_LIMIT:]
+
+
+def _coerce_wisdom_frame(raw: object) -> WisdomFrame | None:
+    if raw is None:
+        return None
+    if isinstance(raw, WisdomFrame):
+        return raw
+    if isinstance(raw, dict):
+        try:
+            return WisdomFrame(**raw)
+        except Exception:
+            logger.warning("Attune middleware: invalid wisdom frame in state", exc_info=True)
+            return None
+    return None
+
+
+def _format_wisdom_frame(frame: WisdomFrame) -> str:
+    affected = ", ".join(frame.affected_parties) if frame.affected_parties else "none"
+    lines = [
+        f"<{WISDOM_FRAME_TAG}>",
+        f"Sensitivity: {frame.sensitivity_level.value}",
+        f"Emotional context: {frame.emotional_context}",
+        f"Wellbeing risk: {'yes' if frame.wellbeing_risk else 'no'}",
+        f"Consequential turn: {'yes' if frame.is_consequential else 'no'}",
+        f"Affected parties: {affected}",
+        f"Recommended posture: {frame.recommended_posture}",
+        f"Guidance: {frame.guidance}",
+    ]
+
+    if frame.consequential_reason:
+        lines.append(f"Consequential reason: {frame.consequential_reason}")
+    if frame.reflection_invitation:
+        lines.append(f"Reflection invitation: {frame.reflection_invitation}")
+
+    lines.extend([
+        "Use this guidance as context, not as content to reveal verbatim.",
+        "Stay transparent, preserve agency, and avoid paternalistic language.",
+        f"</{WISDOM_FRAME_TAG}>",
+    ])
+    return "\n".join(lines)
+
+
+def _merge_system_message(system_message: SystemMessage | None, frame: WisdomFrame) -> SystemMessage:
+    frame_text = _format_wisdom_frame(frame)
+    if system_message is None:
+        return SystemMessage(content=frame_text)
+
+    existing = _normalize_content(system_message.content).strip()
+    if not existing:
+        return SystemMessage(content=frame_text)
+
+    return SystemMessage(content=f"{existing}\n\n{frame_text}")
+
+
+class AttuneMiddleware(AgentMiddleware[AttuneMiddlewareState]):
+    """Compute a wisdom frame once per turn and inject it into model calls."""
 
     state_schema = AttuneMiddlewareState
 
     @override
-    def after_agent(self, state: AttuneMiddlewareState, runtime: Runtime) -> dict | None:
+    def before_agent(self, state: AttuneMiddlewareState, runtime: Runtime) -> dict | None:
         config = get_attune_config()
         if not config.enabled:
-            return None
+            return {"attune_wisdom_frame": None}
 
         messages = state.get("messages", [])
         if not messages:
-            return None
+            return {"attune_wisdom_frame": None}
 
-        # Walk backwards to find the last AI message without tool_calls
-        ai_msg = None
-        for msg in reversed(messages):
-            if getattr(msg, "type", None) == "ai":
-                if not getattr(msg, "tool_calls", None):
-                    ai_msg = msg
-                    break
+        user_message = _get_last_human_message(messages)
+        if not user_message or not needs_wisdom_frame(user_message):
+            return {"attune_wisdom_frame": None}
 
-        if ai_msg is None:
-            return None
-
-        # Normalize content to plain text
-        content = _normalize_content(getattr(ai_msg, "content", ""))
-        if not content.strip():
-            return None
-
-        # Check if response carries karma
-        if not carries_karma(content):
-            return None
-
-        # Find the last human message for context
-        user_message = ""
-        for msg in reversed(messages):
-            if getattr(msg, "type", None) == "human":
-                user_message = _normalize_content(getattr(msg, "content", ""))
-                break
-
-        # Evaluate wisdom
         try:
-            model = create_chat_model(name=config.model_name, thinking_enabled=False)
-            result = evaluate_wisdom(
+            resolved_model_name = _resolve_attune_model_name(config.model_name)
+            model = _get_attune_model(resolved_model_name)
+            frame = build_wisdom_frame(
                 user_message=user_message,
-                agent_response=content,
+                recent_context=_build_recent_context(messages),
                 domain=config.domain.value,
                 model=model,
-                wisdom_threshold=config.wisdom_threshold,
             )
-
-            if result.should_refine:
-                # Mutate content in place. LangChain AIMessage.content is a
-                # regular attribute (not frozen) in the versions used by this project.
-                ai_msg.content = result.refined_response
-                logger.info(
-                    "Attune refined response (wisdom_score: %.2f -> %.2f, sensitivity: %s)",
-                    result.wisdom_score_before,
-                    result.wisdom_score_after,
-                    result.sensitivity_level.value,
-                )
         except Exception:
-            logger.warning("Attune middleware: evaluation failed, passing through original", exc_info=True)
+            logger.warning("Attune middleware: failed to build wisdom frame", exc_info=True)
+            return {"attune_wisdom_frame": None}
 
-        return None
+        logger.info(
+            "Attune wisdom frame built (sensitivity=%s, consequential=%s, wellbeing_risk=%s)",
+            frame.sensitivity_level.value,
+            frame.is_consequential,
+            frame.wellbeing_risk,
+        )
+        return {"attune_wisdom_frame": frame.model_dump()}
+
+    def _inject_frame(self, request: ModelRequest) -> ModelRequest:
+        frame = _coerce_wisdom_frame(request.state.get("attune_wisdom_frame"))
+        if frame is None:
+            return request
+        return request.override(system_message=_merge_system_message(request.system_message, frame))
+
+    @override
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelCallResult:
+        return handler(self._inject_frame(request))
+
+    @override
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelCallResult:
+        return await handler(self._inject_frame(request))

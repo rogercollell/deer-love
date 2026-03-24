@@ -1,5 +1,5 @@
 # backend/packages/harness/deerflow/config/attune_config.py
-"""Configuration for attune wisdom evaluation middleware."""
+"""Configuration for attune upstream wisdom framing."""
 
 from pydantic import BaseModel, Field
 
@@ -7,12 +7,11 @@ from deerflow.attune.models import Domain
 
 
 class AttuneConfig(BaseModel):
-    """Configuration for attune wisdom evaluation."""
+    """Configuration for attune upstream wisdom framing."""
 
-    enabled: bool = Field(default=False, description="Whether to enable attune wisdom evaluation")
-    model_name: str | None = Field(default=None, description="Model name for evaluation (None = use default model)")
-    domain: Domain = Field(default=Domain.general, description="Evaluation domain")
-    wisdom_threshold: float = Field(default=0.80, ge=0.0, le=1.0, description="Refine if wisdom score is below this threshold")
+    enabled: bool = Field(default=False, description="Whether to enable attune upstream wisdom framing")
+    model_name: str | None = Field(default=None, description="Model name for framing (None = use default model)")
+    domain: Domain = Field(default=Domain.general, description="Framing domain")
 
 
 # Global configuration instance

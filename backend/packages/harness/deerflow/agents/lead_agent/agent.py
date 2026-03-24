@@ -202,6 +202,7 @@ Being proactive with task management demonstrates thoroughness and ensures all r
 # SummarizationMiddleware should be early to reduce context before other processing
 # TodoListMiddleware should be before ClarificationMiddleware to allow todo management
 # TitleMiddleware generates title after first exchange
+# AttuneMiddleware computes per-turn wisdom framing before model calls when enabled
 # MemoryMiddleware queues conversation for memory update (after TitleMiddleware)
 # ViewImageMiddleware should be before ClarificationMiddleware to inject image details before LLM
 # ToolErrorHandlingMiddleware should be before ClarificationMiddleware to convert tool exceptions to ToolMessages
@@ -232,7 +233,7 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     # Add TitleMiddleware
     middlewares.append(TitleMiddleware())
 
-    # Add AttuneMiddleware if enabled (before MemoryMiddleware so memory stores refined response)
+    # Add AttuneMiddleware if enabled
     attune_config = get_attune_config()
     if attune_config.enabled:
         middlewares.append(AttuneMiddleware())

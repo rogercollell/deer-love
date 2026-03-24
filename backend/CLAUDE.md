@@ -160,10 +160,13 @@ Middlewares execute in strict order in `packages/harness/deerflow/agents/lead_ag
 6. **SummarizationMiddleware** - Context reduction when approaching token limits (optional, if enabled)
 7. **TodoListMiddleware** - Task tracking with `write_todos` tool (optional, if plan_mode)
 8. **TitleMiddleware** - Auto-generates thread title after first complete exchange and normalizes structured message content before prompting the title model
-9. **MemoryMiddleware** - Queues conversations for async memory update (filters to user + final AI responses)
-10. **ViewImageMiddleware** - Injects base64 image data before LLM call (conditional on vision support)
-11. **SubagentLimitMiddleware** - Truncates excess `task` tool calls from model response to enforce `MAX_CONCURRENT_SUBAGENTS` limit (optional, if subagent_enabled)
-12. **ClarificationMiddleware** - Intercepts `ask_clarification` tool calls, interrupts via `Command(goto=END)` (must be last)
+9. **AttuneMiddleware** - Optionally computes a per-turn wisdom frame for consequential or wellbeing-sensitive turns in `before_agent`, then injects that guidance ephemerally into model calls via `wrap_model_call`
+10. **MemoryMiddleware** - Queues conversations for async memory update (filters to user + final AI responses)
+11. **ViewImageMiddleware** - Injects base64 image data before LLM call (conditional on vision support)
+12. **DeferredToolFilterMiddleware** - Removes deferred tool schemas from model binding while keeping them available to the ToolNode
+13. **SubagentLimitMiddleware** - Truncates excess `task` tool calls from model response to enforce `MAX_CONCURRENT_SUBAGENTS` limit (optional, if subagent_enabled)
+14. **LoopDetectionMiddleware** - Detects repetitive tool-call loops and breaks them before the agent spins
+15. **ClarificationMiddleware** - Intercepts `ask_clarification` tool calls, interrupts via `Command(goto=END)` (must be last)
 
 ### Configuration System
 

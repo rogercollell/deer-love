@@ -18,6 +18,36 @@ _PATH_LINE_RE = re.compile(
 # A prose sentence: starts with a letter, contains at least one space, ends with punctuation or continues
 _PROSE_SENTENCE_RE = re.compile(r"[A-Za-z][^.!?\n]*[.!?]")
 
+_WELLBEING_RISK_RE = re.compile(
+    r"\b("
+    r"suicid(?:e|al)|kill myself|end it|end my life|can't go on|cannot go on|"
+    r"hurt myself|harm myself|self[- ]harm|panic attack|not safe|unsafe|"
+    r"hurt someone|harm someone|spiraling|burned out|burnout"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_RELATIONSHIP_TARGET_RE = re.compile(
+    r"\b("
+    r"manager|boss|coworker|colleague|client|customer|partner|wife|husband|"
+    r"girlfriend|boyfriend|friend|parent|mom|dad|teacher|roommate|landlord|team"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_CONSEQUENTIAL_ACTION_RE = re.compile(
+    r"\b("
+    r"send|text|email|message|reply|tell|confront|call out|post|publish|announce|"
+    r"quit|resign|break up|fire|delete|remove|cancel|confess|apologize|report|escalate"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_DRAFTING_RE = re.compile(
+    r"\b(write|draft|compose|help me write|help me draft)\b",
+    re.IGNORECASE,
+)
+
 
 def carries_karma(message_content: str) -> bool:
     """Return True if the response could create substantial karma.
@@ -63,3 +93,38 @@ def carries_karma(message_content: str) -> bool:
         return False
 
     return True
+
+
+def needs_wisdom_frame(user_message: str) -> bool:
+    """Return True when a turn may warrant upstream wisdom guidance.
+
+    This is intentionally narrower than ``carries_karma()``. Runtime attune
+    should only spend an extra model call on turns that may touch another
+    person, a hard-to-reverse action, or the user's wellbeing.
+    """
+
+    content = user_message.strip()
+    if not content:
+        return False
+
+    if _WELLBEING_RISK_RE.search(content):
+        return True
+
+    if len(content) < 30 and not _PROSE_SENTENCE_RE.search(content):
+        return False
+
+    code_blocks = _CODE_BLOCK_RE.findall(content)
+    code_chars = sum(len(block) for block in code_blocks)
+    total_chars = len(content)
+    if total_chars > 0 and code_chars / total_chars > 0.70:
+        return False
+
+    if _DRAFTING_RE.search(content) and (
+        _CONSEQUENTIAL_ACTION_RE.search(content) or _RELATIONSHIP_TARGET_RE.search(content)
+    ):
+        return True
+
+    if _CONSEQUENTIAL_ACTION_RE.search(content) and _RELATIONSHIP_TARGET_RE.search(content):
+        return True
+
+    return False

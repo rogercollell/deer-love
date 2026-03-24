@@ -1,8 +1,8 @@
-"""Pydantic schemas for attune wisdom evaluation."""
+"""Pydantic schemas for the attune runtime and evaluation helpers."""
 
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Domain(str, Enum):
@@ -17,6 +17,20 @@ class SensitivityLevel(str, Enum):
     high = "high"
     critical = "critical"
     unknown = "unknown"
+
+
+class WisdomFrame(BaseModel):
+    """Upstream wisdom guidance computed before the agent responds."""
+
+    emotional_context: str
+    sensitivity_level: SensitivityLevel
+    is_consequential: bool
+    consequential_reason: str | None = None
+    wellbeing_risk: bool = False
+    affected_parties: list[str] = Field(default_factory=list)
+    recommended_posture: str
+    guidance: str
+    reflection_invitation: str | None = None
 
 
 class EvaluationStatus(str, Enum):

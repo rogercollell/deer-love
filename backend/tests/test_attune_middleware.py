@@ -1,34 +1,45 @@
-"""Unit tests for AttuneMiddleware."""
+"""Unit tests for the upstream AttuneMiddleware."""
 
+import asyncio
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain.agents.middleware.types import ModelRequest
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from deerflow.agents.middlewares.attune_middleware import AttuneMiddleware
-from deerflow.config.attune_config import AttuneConfig, get_attune_config, set_attune_config
+from deerflow.agents.middlewares.attune_middleware import (
+    WISDOM_FRAME_TAG,
+    AttuneMiddleware,
+    clear_attune_model_cache,
+)
+from deerflow.attune.models import SensitivityLevel, WisdomFrame
+from deerflow.config.attune_config import (
+    AttuneConfig,
+    get_attune_config,
+    set_attune_config,
+)
 
 
-def _make_valid_response_text(should_refine: bool = False, refined: str = "Original") -> str:
-    """Build a valid JSON response for the mock model."""
-    scores = {
-        "emotional_attunement": 0.50 if should_refine else 0.90,
-        "right_speech": 0.50 if should_refine else 0.85,
-        "calibrated_uncertainty": 0.50 if should_refine else 0.80,
-        "non_reactivity": 0.50 if should_refine else 0.85,
-        "agency_preservation": 0.50 if should_refine else 0.80,
-        "skillful_timing": 0.50 if should_refine else 0.85,
-    }
-    notes = {dim: f"Note for {dim}" for dim in scores}
+def _make_frame_response(
+    *,
+    sensitivity: str = "high",
+    is_consequential: bool = True,
+    wellbeing_risk: bool = False,
+) -> str:
     return json.dumps({
-        "sensitivity_level": "low",
-        "dimension_scores_before": scores,
-        "dimension_notes_before": notes,
-        "wisdom_score_before": 0.50 if should_refine else 0.85,
-        "should_refine": should_refine,
-        "wisdom_score_after": 0.75 if should_refine else 0.85,
-        "refined_response": refined,
-        "modifications": [{"type": "empathy", "explanation": "Added"}] if should_refine else [],
+        "emotional_context": "The user sounds frustrated and the stakes are interpersonal.",
+        "sensitivity_level": sensitivity,
+        "is_consequential": is_consequential,
+        "consequential_reason": "The action could affect a relationship." if is_consequential else None,
+        "wellbeing_risk": wellbeing_risk,
+        "affected_parties": ["user", "manager"] if is_consequential else ["user"],
+        "recommended_posture": "Be calm, transparent, and non-judgmental.",
+        "guidance": "Acknowledge the stakes before helping further.",
+        "reflection_invitation": (
+            "I notice this could land hard. Do you want to pause and shape it carefully before we proceed?"
+            if is_consequential
+            else None
+        ),
     })
 
 
@@ -43,160 +54,127 @@ def _make_mock_model(response_text: str) -> MagicMock:
 class TestAttuneMiddleware:
     def setup_method(self):
         self._original = AttuneConfig(**get_attune_config().model_dump())
+        clear_attune_model_cache()
 
     def teardown_method(self):
         set_attune_config(self._original)
+        clear_attune_model_cache()
 
-    def test_skips_code_dominant_response(self):
-        """Code-dominant responses bypass attune evaluation."""
-        set_attune_config(AttuneConfig(enabled=True))
-        middleware = AttuneMiddleware()
-        state = {
-            "messages": [
-                HumanMessage(content="Show me the code"),
-                AIMessage(content="```python\ndef foo():\n    return 1\n\ndef bar():\n    return 2\n\ndef baz():\n    x = 1\n    y = 2\n    return x + y\n```"),
-            ]
-        }
-        runtime = MagicMock()
-        result = middleware.after_agent(state, runtime)
-        assert result is None
-
-    @patch("deerflow.agents.middlewares.attune_middleware.create_chat_model")
-    def test_refines_low_wisdom_response(self, mock_create_model):
-        """Low wisdom score triggers silent refinement."""
-        set_attune_config(AttuneConfig(enabled=True))
-        mock_model = _make_mock_model(
-            _make_valid_response_text(should_refine=True, refined="A wiser response")
+    def _build_request(self, state: dict) -> ModelRequest:
+        return ModelRequest(
+            model=MagicMock(),
+            messages=[HumanMessage(content="Please help me.")],
+            system_message=SystemMessage(content="Base system prompt."),
+            tool_choice=None,
+            tools=[],
+            response_format=None,
+            state=state,
+            runtime=MagicMock(),
+            model_settings={},
         )
-        mock_create_model.return_value = mock_model
 
-        original_content = "I hear you're struggling. Here's some advice that might feel dismissive."
-        ai_msg = AIMessage(content=original_content)
-        state = {
-            "messages": [
-                HumanMessage(content="I'm feeling overwhelmed"),
-                ai_msg,
-            ]
-        }
-        runtime = MagicMock()
+    def test_before_agent_skips_non_consequential_technical_turns(self):
+        set_attune_config(AttuneConfig(enabled=True))
         middleware = AttuneMiddleware()
-        result = middleware.after_agent(state, runtime)
+        state = {"messages": [HumanMessage(content="How do I sort a list in Python?")]}
 
-        # Message content should be mutated in place
-        assert ai_msg.content == "A wiser response"
-        assert result is None  # Mutation in place, no state dict returned
+        result = middleware.before_agent(state, MagicMock())
+
+        assert result == {"attune_wisdom_frame": None}
 
     @patch("deerflow.agents.middlewares.attune_middleware.create_chat_model")
-    def test_passes_through_high_wisdom_response(self, mock_create_model):
-        """High wisdom score leaves response unchanged."""
+    def test_before_agent_builds_frame_for_consequential_turn(self, mock_create_model):
         set_attune_config(AttuneConfig(enabled=True))
-        mock_model = _make_mock_model(
-            _make_valid_response_text(should_refine=False, refined="Original response")
+        mock_create_model.return_value = _make_mock_model(_make_frame_response())
+        middleware = AttuneMiddleware()
+        state = {
+            "messages": [
+                HumanMessage(content="Help me draft an email to my manager telling them I'm done covering for the team."),
+            ]
+        }
+
+        result = middleware.before_agent(state, MagicMock())
+
+        assert result is not None
+        raw_frame = result["attune_wisdom_frame"]
+        assert isinstance(raw_frame, dict)
+        assert raw_frame["is_consequential"] is True
+        assert raw_frame["sensitivity_level"] == SensitivityLevel.high.value
+
+    def test_wrap_model_call_injects_frame_into_system_message(self):
+        set_attune_config(AttuneConfig(enabled=True))
+        middleware = AttuneMiddleware()
+        frame = WisdomFrame(
+            emotional_context="The user is heated and wants to send a difficult message.",
+            sensitivity_level=SensitivityLevel.high,
+            is_consequential=True,
+            consequential_reason="This message could damage a professional relationship.",
+            wellbeing_risk=False,
+            affected_parties=["user", "manager"],
+            recommended_posture="Be steady and non-judgmental.",
+            guidance="Acknowledge the stakes and invite a pause before drafting.",
+            reflection_invitation="I notice this could land hard. Do you want to shape it carefully before we send anything?",
         )
-        mock_create_model.return_value = mock_model
+        request = self._build_request({"attune_wisdom_frame": frame.model_dump()})
 
-        original_content = "I understand how you feel. Let's work through this together."
-        ai_msg = AIMessage(content=original_content)
-        state = {
-            "messages": [
-                HumanMessage(content="I need help"),
-                ai_msg,
-            ]
-        }
-        runtime = MagicMock()
-        middleware = AttuneMiddleware()
-        result = middleware.after_agent(state, runtime)
-        assert ai_msg.content == original_content
-        assert result is None
+        captured: dict[str, ModelRequest] = {}
 
-    def test_skips_when_no_ai_message(self):
-        """No AI message in state returns None."""
+        def handler(updated_request: ModelRequest):
+            captured["request"] = updated_request
+            return "ok"
+
+        result = middleware.wrap_model_call(request, handler)
+
+        assert result == "ok"
+        assert captured["request"].system_message is not None
+        assert WISDOM_FRAME_TAG in captured["request"].system_message.content
+        assert "Base system prompt." in captured["request"].system_message.content
+        assert frame.reflection_invitation in captured["request"].system_message.content
+
+    def test_awrap_model_call_injects_frame(self):
         set_attune_config(AttuneConfig(enabled=True))
         middleware = AttuneMiddleware()
-        state = {"messages": [HumanMessage(content="Hello")]}
-        runtime = MagicMock()
-        result = middleware.after_agent(state, runtime)
-        assert result is None
-
-    def test_skips_ai_message_with_tool_calls(self):
-        """AI messages that are intermediate tool-calling steps are skipped."""
-        set_attune_config(AttuneConfig(enabled=True))
-        middleware = AttuneMiddleware()
-        ai_msg = AIMessage(content="Let me check that", tool_calls=[{"name": "bash", "args": {"command": "ls"}, "id": "1"}])
-        state = {
-            "messages": [
-                HumanMessage(content="List files"),
-                ai_msg,
-            ]
-        }
-        runtime = MagicMock()
-        result = middleware.after_agent(state, runtime)
-        assert result is None
-
-    @patch("deerflow.agents.middlewares.attune_middleware.create_chat_model")
-    def test_preserves_original_on_engine_error(self, mock_create_model):
-        """Wisdom engine errors leave response unchanged."""
-        set_attune_config(AttuneConfig(enabled=True))
-        mock_model = MagicMock()
-        mock_model.invoke.side_effect = RuntimeError("API down")
-        mock_create_model.return_value = mock_model
-
-        original_content = "Some advice about your situation."
-        ai_msg = AIMessage(content=original_content)
-        state = {
-            "messages": [
-                HumanMessage(content="Help me"),
-                ai_msg,
-            ]
-        }
-        runtime = MagicMock()
-        middleware = AttuneMiddleware()
-        result = middleware.after_agent(state, runtime)
-        assert ai_msg.content == original_content
-        assert result is None
-
-    def test_skips_when_disabled(self):
-        """Middleware does nothing when attune is disabled."""
-        set_attune_config(AttuneConfig(enabled=False))
-        middleware = AttuneMiddleware()
-        ai_msg = AIMessage(content="Some response")
-        state = {
-            "messages": [
-                HumanMessage(content="Hello"),
-                ai_msg,
-            ]
-        }
-        runtime = MagicMock()
-        result = middleware.after_agent(state, runtime)
-        assert result is None
-
-    @patch("deerflow.agents.middlewares.attune_middleware.create_chat_model")
-    def test_memory_receives_refined_content(self, mock_create_model):
-        """Integration: MemoryMiddleware sees the refined content after attune mutates it."""
-        set_attune_config(AttuneConfig(enabled=True))
-        mock_model = _make_mock_model(
-            _make_valid_response_text(should_refine=True, refined="Refined with compassion")
+        frame = WisdomFrame(
+            emotional_context="The user may be unsafe.",
+            sensitivity_level=SensitivityLevel.critical,
+            is_consequential=False,
+            wellbeing_risk=True,
+            affected_parties=["user"],
+            recommended_posture="Lead with attunement and a safety check.",
+            guidance="Acknowledge the distress and keep the response simple.",
+            reflection_invitation=None,
         )
-        mock_create_model.return_value = mock_model
+        request = self._build_request({"attune_wisdom_frame": frame.model_dump()})
+        handler = AsyncMock(return_value="ok")
 
-        ai_msg = AIMessage(content="Some blunt advice that could be more compassionate.")
-        messages = [HumanMessage(content="I'm hurting"), ai_msg]
-        state = {"messages": messages}
-        runtime = MagicMock()
+        result = asyncio.run(middleware.awrap_model_call(request, handler))
 
-        # Run attune middleware
+        assert result == "ok"
+        passed_request = handler.await_args.args[0]
+        assert WISDOM_FRAME_TAG in passed_request.system_message.content
+
+    @patch("deerflow.agents.middlewares.attune_middleware.create_chat_model")
+    def test_reuses_cached_framing_model(self, mock_create_model):
+        set_attune_config(AttuneConfig(enabled=True, model_name="attune-framer"))
+        mock_create_model.return_value = _make_mock_model(_make_frame_response())
         middleware = AttuneMiddleware()
-        middleware.after_agent(state, runtime)
 
-        # The same message object in the list should now have refined content
-        # This is what MemoryMiddleware would see when it processes messages
-        assert messages[-1].content == "Refined with compassion"
+        first_state = {
+            "messages": [HumanMessage(content="Help me draft a text to my partner ending the relationship.")]
+        }
+        second_state = {
+            "messages": [HumanMessage(content="Help me draft an apology to my manager.")]
+        }
+
+        middleware.before_agent(first_state, MagicMock())
+        middleware.before_agent(second_state, MagicMock())
+
+        assert mock_create_model.call_count == 1
 
     @patch("deerflow.agents.lead_agent.agent.get_app_config")
     @patch("deerflow.agents.lead_agent.agent.get_summarization_config")
     @patch("deerflow.agents.lead_agent.agent.build_lead_runtime_middlewares", return_value=[])
     def test_not_in_chain_when_disabled(self, _mock_runtime, mock_summ, mock_app):
-        """AttuneMiddleware is excluded from _build_middlewares() when disabled."""
         from deerflow.agents.lead_agent.agent import _build_middlewares
         from deerflow.agents.middlewares.attune_middleware import AttuneMiddleware as AW
 
@@ -207,15 +185,13 @@ class TestAttuneMiddleware:
         )
 
         set_attune_config(AttuneConfig(enabled=False))
-        config = {"configurable": {}}
-        middlewares = _build_middlewares(config, model_name=None)
+        middlewares = _build_middlewares({"configurable": {}}, model_name=None)
         assert not any(isinstance(m, AW) for m in middlewares)
 
     @patch("deerflow.agents.lead_agent.agent.get_app_config")
     @patch("deerflow.agents.lead_agent.agent.get_summarization_config")
     @patch("deerflow.agents.lead_agent.agent.build_lead_runtime_middlewares", return_value=[])
     def test_in_chain_when_enabled(self, _mock_runtime, mock_summ, mock_app):
-        """AttuneMiddleware is included in _build_middlewares() when enabled."""
         from deerflow.agents.lead_agent.agent import _build_middlewares
         from deerflow.agents.middlewares.attune_middleware import AttuneMiddleware as AW
 
@@ -226,6 +202,5 @@ class TestAttuneMiddleware:
         )
 
         set_attune_config(AttuneConfig(enabled=True))
-        config = {"configurable": {}}
-        middlewares = _build_middlewares(config, model_name=None)
+        middlewares = _build_middlewares({"configurable": {}}, model_name=None)
         assert any(isinstance(m, AW) for m in middlewares)

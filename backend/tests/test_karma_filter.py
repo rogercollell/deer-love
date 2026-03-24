@@ -1,6 +1,6 @@
-"""Unit tests for attune karma pre-filter."""
+"""Unit tests for attune runtime filters."""
 
-from deerflow.attune.karma_filter import carries_karma
+from deerflow.attune.karma_filter import carries_karma, needs_wisdom_frame
 
 
 class TestCarriesKarma:
@@ -70,3 +70,27 @@ class TestCarriesKarma:
         """List of commands with no prose is skipped."""
         content = "```bash\nnpm install\nnpm run build\nnpm test\n```"
         assert carries_karma(content) is False
+
+
+class TestNeedsWisdomFrame:
+    def test_empty_message_returns_false(self):
+        assert needs_wisdom_frame("") is False
+
+    def test_short_command_returns_false(self):
+        assert needs_wisdom_frame("ls") is False
+        assert needs_wisdom_frame("git status") is False
+        assert needs_wisdom_frame("run tests") is False
+
+    def test_code_dominant_message_returns_false(self):
+        content = "```python\ndef foo():\n    return 1\n```"
+        assert needs_wisdom_frame(content) is False
+
+    def test_consequential_relationship_message_returns_true(self):
+        content = "Help me draft a message to my manager telling them I'm done covering for the team."
+        assert needs_wisdom_frame(content) is True
+
+    def test_wellbeing_risk_returns_true(self):
+        assert needs_wisdom_frame("I can't go on like this anymore.") is True
+
+    def test_ordinary_technical_question_returns_false(self):
+        assert needs_wisdom_frame("How do I sort a list in Python?") is False
