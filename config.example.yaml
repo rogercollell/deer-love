@@ -540,3 +540,13 @@ checkpointer:
 #     use: my_package:MyGuardrailProvider
 #     config:
 #       key: value
+
+# ---- Attune Wisdom Evaluation ----
+# Evaluates agent responses for wisdom and compassion, silently refining
+# those that score below the threshold. Only runs on responses that carry
+# "substantial karma" (interpersonal/advisory content, not code/tool output).
+# attune:
+#   enabled: true
+#   model_name: null          # null = use default model
+#   domain: "general"         # general | coaching | mental_health
+#   wisdom_threshold: 0.80    # refine if wisdom score below this

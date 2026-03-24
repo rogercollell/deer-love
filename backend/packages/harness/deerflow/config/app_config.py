@@ -7,6 +7,7 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
 
+from deerflow.config.attune_config import load_attune_config_from_dict
 from deerflow.config.checkpointer_config import CheckpointerConfig, load_checkpointer_config_from_dict
 from deerflow.config.extensions_config import ExtensionsConfig
 from deerflow.config.guardrails_config import load_guardrails_config_from_dict
@@ -111,6 +112,10 @@ class AppConfig(BaseModel):
         # Load guardrails config if present
         if "guardrails" in config_data:
             load_guardrails_config_from_dict(config_data["guardrails"])
+
+        # Load attune config if present
+        if "attune" in config_data:
+            load_attune_config_from_dict(config_data["attune"])
 
         # Load checkpointer config if present
         if "checkpointer" in config_data:
