@@ -1,7 +1,6 @@
 """Pydantic schemas for attune wisdom evaluation."""
 
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -35,9 +34,9 @@ class EvaluateResponse(BaseModel):
     evaluation_status: EvaluationStatus
     sensitivity_level: SensitivityLevel
     should_refine: bool
-    wisdom_score_before: Optional[float]
-    wisdom_score_after: Optional[float]
-    dimension_scores_before: Optional[dict[str, float]]
-    dimension_notes_before: Optional[dict[str, str]]
+    wisdom_score_before: float | None
+    wisdom_score_after: float | None
+    dimension_scores_before: dict[str, float] | None
+    dimension_notes_before: dict[str, str] | None
     refined_response: str
     modifications: list[Modification]
